@@ -30,6 +30,7 @@ function load(entry = 'index.html') {
     const elements = {};
     const draw = new Proxy({}, { get: () => () => {} });
     for (const [, id] of html.matchAll(/\sid="([^"]+)"/g)) {
+        assert.ok(!Object.hasOwn(elements, id), entry + ' 包含重复 ID：' + id);
         elements[id] = eventTarget({
             value: '', classList: { add() {}, remove() {}, contains() {return false;} },
             style: {}, reportValidity: () => true, getContext: () => draw, focus() {}
