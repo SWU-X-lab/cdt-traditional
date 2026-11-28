@@ -33,8 +33,14 @@
                            pattern="[012]" placeholder="0=调试；1=先做FCDT后CLT；2=先做CLT后FCDT" required>
                 </div>
                 <div class="form-group">
+                    <label for="participantCode">被试代码（可选，跨任务配对时填写）</label>
+                    <input type="text" id="participantCode" maxlength="64"
+                           autocomplete="off" autocapitalize="off" spellcheck="false"
+                           placeholder="填写主试发放的匿名代码；不要填姓名或手机号">
+                </div>
+                <div class="form-group">
                     <label for="subjectID">匿名被试编号 (Subject ID)</label>
-                    <input type="text" id="subjectID" readonly placeholder="开始实验后自动生成">
+                    <input type="text" id="subjectID" readonly placeholder="未填写被试代码时自动生成">
                 </div>
 
                 <button type="button" id="start-btn" class="btn primary">开始实验</button>
@@ -135,7 +141,7 @@
         </div>
     </div>
 
-    <!-- 4.5 最终正确率显示（最后一个 block 结束后显示，按 SPACE 进入结束语） -->
+    <!-- 最后一组反馈：与 compare 版一致，按空格后保存 -->
     <div id="final-accuracy-phase" class="screen hidden match-break">
         <div class="rest-stack">
             <p class="rest-acc" id="final-acc">本组正确率为 0%</p>
@@ -144,21 +150,12 @@
         </div>
     </div>
 
-    <!-- 5. 上传/保存数据阶段 -->
-    <div id="upload-phase" class="screen hidden">
-        <div class="message-center">
-            <h1>正在处理数据...</h1>
-            <div class="spinner"></div>
-            <p id="upload-status">请勿关闭浏览器页面</p>
-        </div>
-    </div>
-
-    <!-- 6. 结束阶段 -->
+    <!-- 5. 结果页：本地下载和云端保存状态分别展示 -->
     <div id="finished-phase" class="screen hidden">
         <div class="message-center">
             <h1>实验结束！</h1>
-            <p id="finished-text">感谢您的参与！数据已成功处理。</p>
-            <p class="start-hint">请检查数据是否自动下载，如已下载请关闭此页面，如未自动下载，请点击下方链接。</p>
+            <p id="local-save-status" role="status">本地 Excel：尚未生成。</p>
+            <p id="cloud-save-status" role="status">云端保存：尚未开始。</p>
             <!-- 手动下载入口：与 exp1_clt 一致，若浏览器不遵循 download 属性导致文件名为随机串时使用 -->
             <div id="manual-download" class="hidden" style="margin-top: 1em;">
                 <a id="manual-download-link" href="#" download>下载结果</a>
@@ -166,8 +163,7 @@
         </div>
     </div>
 
-    <!-- 版本号用于强制刷新浏览器缓存，每次修改 exp1_fcdt.js 后请同步递增 -->
-    <script src="exp1_fcdt_traditional.js?v=20261123traditional6"></script>
+    <script src="exp1_fcdt_traditional.js?v=20261128localfirst2"></script>
 </body>
 
 </html>
