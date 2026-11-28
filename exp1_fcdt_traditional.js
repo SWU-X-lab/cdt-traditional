@@ -430,6 +430,9 @@ window.addEventListener('keydown', (e) => {
         return;
     }
     if (inFormField) return;                               // 表单输入：放行所有普通按键
+    // 仅在保存阶段放行下载链接的 Enter，保留作答阶段的防误触规则。
+    if (e.key === 'Enter' && (experimentPhase === 'upload' || experimentPhase === 'finished') &&
+        (e.target?.id === 'manual-download-link')) return;
     if (e.key === 'Escape') {                              // 屏蔽 Esc 退出全屏
         e.preventDefault();
         return;

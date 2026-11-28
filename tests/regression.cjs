@@ -26,7 +26,7 @@ function eventTarget(fields = {}) {
 
 function load(entry = 'index.html', options = {}) {
     const html = fs.readFileSync(path.join(root, entry), 'utf8');
-    assert.match(html, /<script src="exp1_fcdt_traditional\.js\?v=20261128localfirst1"><\/script>/);
+    assert.match(html, /<script src="exp1_fcdt_traditional\.js\?v=20261128localfirst2"><\/script>/);
     const elements = {};
     const draw = new Proxy({}, { get: () => () => {} });
     const autoDownloads = [];
@@ -254,6 +254,15 @@ test('两个正式入口都在云端待处理时提供手动 Excel，保留原�
         assert.match(f.elements['cloud-save-status'].innerText, /正在处理/);
         assert.equal(f.elements['manual-download'].classList.contains('hidden'), false);
         assert.equal(f.elements['manual-download-link'].href, 'blob:test-xlsx');
+        for (const [target, key, prevented] of [
+            [{ id: 'manual-download-link' }, 'Enter', false],
+            [{ id: 'manual-download-link' }, 'Tab', false],
+            [{ id: 'other-link' }, 'Enter', true]
+        ]) {
+            let blocked = false;
+            await f.window.emit('keydown', {target, key, preventDefault() { blocked = true; }});
+            assert.equal(blocked, prevented);
+        }
         const name = f.elements['manual-download-link'].download;
         assert.match(name, /Study_A1-Z\.xlsx$/);
         assert.deepEqual(f.autoDownloads, [name]);
