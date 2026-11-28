@@ -24,15 +24,18 @@ function eventTarget(fields = {}) {
     }, fields);
 }
 
-function load(entry = 'index.html') {
+function load(entry = 'index.html', options = {}) {
     const html = fs.readFileSync(path.join(root, entry), 'utf8');
-    assert.match(html, /<script src="exp1_fcdt_traditional\.js\?v=20261126quality1"><\/script>/);
+    assert.match(html, /<script src="exp1_fcdt_traditional\.js\?v=20261128localfirst1"><\/script>/);
     const elements = {};
     const draw = new Proxy({}, { get: () => () => {} });
+    const autoDownloads = [];
+    const workbookWrites = [];
     for (const [, id] of html.matchAll(/\sid="([^"]+)"/g)) {
         assert.ok(!Object.hasOwn(elements, id), entry + ' 包含重复 ID：' + id);
+        const classes = new Set(id === 'finished-phase' || id === 'manual-download' ? ['hidden'] : []);
         elements[id] = eventTarget({
-            value: '', classList: { add() {}, remove() {}, contains() {return false;} },
+            value: '', classList: { add(x) { classes.add(x); }, remove(x) { classes.delete(x); }, contains(x) { return classes.has(x); } },
             style: {}, reportValidity: () => true, getContext: () => draw, focus() {}
         });
     }
@@ -42,12 +45,14 @@ function load(entry = 'index.html') {
     const calls = [];
     const storage = Object.fromEntries(['initializeStorage', 'loadProgress', 'saveTrial', 'saveCheckpoint', 'saveProgress', 'saveFinalResult', 'clearProgress', 'finishExperiment'].map(name => [name, async (data) => {
         calls.push([name, data]);
+        if (name === 'saveFinalResult' && options.cloudSave) return options.cloudSave(data);
         return name === 'initializeStorage' ? {backend: 'supabase'} : null;
     }]));
     const document = eventTarget({
         getElementById: id => elements[id] ?? null,
         hidden: false, hasFocus() { return !this.hidden; },
-        documentElement: {}
+        documentElement: {}, body: { appendChild() {} },
+        createElement() { return { style: {}, click() { autoDownloads.push(this.download); if (options.blockAutoDownload) throw Error('blocked'); }, remove() {} }; }
     });
     const window = eventTarget({CLTStorage: storage, innerWidth: 1024, innerHeight: 768});
     const context = vm.createContext({
@@ -58,7 +63,13 @@ function load(entry = 'index.html') {
         performance: { now: () => 100 },
         alert: msg => alerts.push(msg),
         console: {log() {}, error() {}, warn() {}},
-        XLSX: {utils: {json_to_sheet: rows => rows}}
+        Blob: class {}, URL: {createObjectURL() { return 'blob:test-xlsx'; }},
+        XLSX: {
+            utils: {json_to_sheet: rows => rows,
+                book_new: () => ({SheetNames: [], Sheets: {}}),
+                book_append_sheet(wb, rows, name) { wb.SheetNames.push(name); wb.Sheets[name] = rows; }},
+            write(wb) { workbookWrites.push(wb); if (options.breakExcel) throw Error('xlsx error'); return Uint8Array.from([0x50, 0x4b]); }
+        }
     });
     vm.runInContext(js + `
         globalThis.hooks = {
@@ -76,7 +87,7 @@ function load(entry = 'index.html') {
         };
     `, context, {filename: file});
     const a = context.hooks;
-    return {a, elements, document, window, calls, alerts, timers};
+    return {a, elements, document, window, calls, alerts, timers, autoDownloads, workbookWrites};
 }
 
 const hit = { isChange: 1, response: 1, accuracy: 1, TrialStatus: 'valid', rt: 0.25, CountedInK: 1 };
@@ -124,7 +135,8 @@ test('两个实际 HTML 入口均可开始，调试结束只导出本地文件',
         assert.equal(a.snapshot().experimentPhase, 'ending_wait');
         assert.equal(elements['final-acc'].innerText, '本组暂无有效试次');
         await window.emit('keydown', {key: ' ', code: 'Space'});
-        assert.equal(a.snapshot().experimentPhase, 'upload');
+        assert.equal(a.snapshot().experimentPhase, 'finished');
+        assert.match(elements['cloud-save-status'].innerText, /调试数据不会上传/);
         assert.equal(exported, 1);
         assert.deepEqual(calls, []);
     }
@@ -222,4 +234,62 @@ test('保留 Z 和斜杠键映射；正式结束走原上传及本地备份', as
         'initializeStorage', 'loadProgress', 'saveTrial', 'saveCheckpoint',
         'saveFinalResult', 'clearProgress', 'finishExperiment'
     ]);
+});
+
+test('两个正式入口都在云端待处理时提供手动 Excel，保留原单次自动下载', async () => {
+    for (const entry of ['index.html', 'exp1_fcdt_traditional.html']) {
+        let resolveSave;
+        const pending = new Promise(resolve => { resolveSave = resolve; });
+        const f = load(entry, {cloudSave: () => pending, blockAutoDownload: true});
+        f.elements.subGroup.value = '1';
+        f.elements.participantCode.value = 'Study_A1-Z';
+        await f.elements['start-btn'].emit('click');
+        f.a.testProbe();
+        await f.window.emit('keydown', {key: '/'});
+        f.a.endOneTrialRun();
+        await f.window.emit('keydown', {key: ' ', code: 'Space'});
+        assert.equal(f.a.snapshot().experimentPhase, 'upload');
+        assert.equal(f.elements['finished-phase'].classList.contains('hidden'), false);
+        assert.match(f.elements['local-save-status'].innerText, /已生成/);
+        assert.match(f.elements['cloud-save-status'].innerText, /正在处理/);
+        assert.equal(f.elements['manual-download'].classList.contains('hidden'), false);
+        assert.equal(f.elements['manual-download-link'].href, 'blob:test-xlsx');
+        const name = f.elements['manual-download-link'].download;
+        assert.match(name, /Study_A1-Z\.xlsx$/);
+        assert.deepEqual(f.autoDownloads, [name]);
+        const [trial] = f.workbookWrites[0].Sheets['Trial Data'];
+        assert.equal(trial.SubjectID, 'Study_A1-Z');
+        assert.equal(trial.RandomSeed, String(f.a.snapshot().p.rndSeed));
+        const saveCalls = f.calls.filter(([name]) => name === 'saveFinalResult');
+        assert.equal(saveCalls.length, 1);
+        assert.equal(saveCalls[0][1].trials[0].subjectID, 'Study_A1-Z');
+        assert.ok(!f.calls.some(([name]) => name === 'finishExperiment'));
+        resolveSave({message: '已保存。'});
+        for (let i = 0; i < 15; i++) await Promise.resolve();
+        assert.equal(f.a.snapshot().experimentPhase, 'finished');
+        assert.match(f.elements['cloud-save-status'].innerText, /已保存/);
+        assert.equal(f.elements['manual-download-link'].download, name);
+        assert.deepEqual(f.autoDownloads, [name]);
+    }
+});
+
+test('云端失败保留本地链接，本地生成失败不阻断云端', async () => {
+    const cloudFailure = load('index.html', {cloudSave: async () => { throw Error('offline'); }});
+    const localFailure = load('index.html', {breakExcel: true, cloudSave: async () => ({message: '已保存。'})});
+    for (const f of [cloudFailure, localFailure]) {
+        f.elements.subGroup.value = '2';
+        await f.elements['start-btn'].emit('click');
+        f.a.testProbe();
+        await f.window.emit('keydown', {key: '/'});
+        f.a.endOneTrialRun();
+        await f.window.emit('keydown', {key: ' ', code: 'Space'});
+        for (let i = 0; i < 15; i++) await Promise.resolve();
+        assert.equal(f.a.snapshot().experimentPhase, 'finished');
+        assert.equal(f.calls.filter(([name]) => name === 'saveFinalResult').length, 1);
+    }
+    assert.match(cloudFailure.elements['cloud-save-status'].innerText, /失败.*offline/);
+    assert.equal(cloudFailure.elements['manual-download'].classList.contains('hidden'), false);
+    assert.match(localFailure.elements['local-save-status'].innerText, /生成失败/);
+    assert.match(localFailure.elements['cloud-save-status'].innerText, /已保存/);
+    assert.equal(localFailure.elements['manual-download'].classList.contains('hidden'), true);
 });

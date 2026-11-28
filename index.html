@@ -150,21 +150,12 @@
         </div>
     </div>
 
-    <!-- 5. 上传/保存数据阶段 -->
-    <div id="upload-phase" class="screen hidden">
-        <div class="message-center">
-            <h1>正在处理数据...</h1>
-            <div class="spinner"></div>
-            <p id="upload-status">请勿关闭浏览器页面</p>
-        </div>
-    </div>
-
-    <!-- 6. 结束阶段 -->
+    <!-- 5. 结果页：本地下载和云端保存状态分别展示 -->
     <div id="finished-phase" class="screen hidden">
         <div class="message-center">
             <h1>实验结束！</h1>
-            <p id="finished-text">感谢您的参与！数据已成功处理。</p>
-            <p class="start-hint">请检查数据是否自动下载，如已下载请关闭此页面，如未自动下载，请点击下方链接。</p>
+            <p id="local-save-status" role="status">本地 Excel：尚未生成。</p>
+            <p id="cloud-save-status" role="status">云端保存：尚未开始。</p>
             <!-- 手动下载入口：与 exp1_clt 一致，若浏览器不遵循 download 属性导致文件名为随机串时使用 -->
             <div id="manual-download" class="hidden" style="margin-top: 1em;">
                 <a id="manual-download-link" href="#" download>下载结果</a>
@@ -172,8 +163,7 @@
         </div>
     </div>
 
-    <!-- 版本号用于强制刷新浏览器缓存，每次修改 exp1_fcdt.js 后请同步递增 -->
-    <script src="exp1_fcdt_traditional.js?v=20261126quality1"></script>
+    <script src="exp1_fcdt_traditional.js?v=20261128localfirst1"></script>
 </body>
 
 </html>

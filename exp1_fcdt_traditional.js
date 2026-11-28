@@ -132,7 +132,6 @@ const screens = {
     break: document.getElementById('break-phase'),
     'final-accuracy': document.getElementById('final-accuracy-phase'),
     // questionnaire: 阶段已删除（2026-10-10 与 exp1_clt 同步去问卷）
-    upload: document.getElementById('upload-phase'),
     finished: document.getElementById('finished-phase')
 };
 const canvas = document.getElementById('expCanvas');
@@ -1112,10 +1111,11 @@ function nextBlock() {
 async function finishExperiment() {
     // 问卷已去：实验只要走到这里就算正常完成；调试模式仍会通过其它流程提前退出。
     const completedNormally = stimData.length > 0;
-    switchScreen('upload');
     experimentPhase = 'upload';
+    switchScreen('finished');
 
-    let uploadMsg = p.debugMode ? '调试数据不会上传。' : remoteStorage ? '' : '云端存储不可用。';
+    const localStatus = document.getElementById('local-save-status');
+    const cloudStatus = document.getElementById('cloud-save-status');
     let storageSucceeded = false;
 
     // 被试人口统计学字段回填到每一行（问卷字段不再回填）
@@ -1135,37 +1135,38 @@ async function finishExperiment() {
         d.resumeCount = isResumedSession ? resumeCount : 0;
     }
 
-    if (remoteStorage) {
-        try {
-            const result = await remoteStorage.saveFinalResult({
-                trials: stimData
-                // questionnaire 字段已删除：CLTStorage 通用层仍能正常序列化（payload.questionnaire 为 undefined）
-            });
-            storageSucceeded = true;
-            uploadMsg += result && result.message ? result.message : '数据已保存。';
-            // 实验正常完成：清掉 Batch Session 里的进度，避免下次误判为"上次没做完"
-            await remoteStorage.clearProgress();
-        } catch (error) {
-            console.error("Storage Error:", error);
-            uploadMsg += "服务器保存失败: " + error.message + "。";
-        }
-    }
-
+    // 先准备 Excel：不让等待中的云端上传阻塞本地备份。
     if (p.saveLocal && stimData.length > 0) {
         try {
             downloadXLSX();
-            uploadMsg += "本地 Excel 已生成下载。";
+            localStatus.innerText = '本地 Excel：已生成，可点击下方链接下载。';
         } catch (error) {
             console.error('Excel export failed:', error);
-            uploadMsg += '本地 Excel 生成失败：' + error.message + '。';
+            localStatus.innerText = '本地 Excel：生成失败。' + (error?.message || String(error));
         }
+    } else {
+        localStatus.innerText = p.saveLocal ? '本地 Excel：没有可导出的试次。' : '本地 Excel：未选择下载。';
     }
 
-    document.getElementById('upload-status').innerText = uploadMsg;
-    document.getElementById('finished-text').innerText = uploadMsg;
-    setTimeout(() => { switchScreen('finished'); }, 2000);
-
     if (remoteStorage) {
+        cloudStatus.innerText = '云端保存：正在处理，请保持页面打开。';
+        try {
+            const result = await remoteStorage.saveFinalResult({ trials: stimData });
+            storageSucceeded = true;
+            cloudStatus.innerText = '云端保存：' + (result?.message || '已完成。');
+        } catch (error) {
+            console.error('Storage Error:', error);
+            cloudStatus.innerText = '云端保存：失败。' + (error?.message || String(error));
+        }
+        if (storageSucceeded) {
+            try {
+                // 保持原流程：云端保存成功后清除进度。
+                await remoteStorage.clearProgress();
+            } catch (error) {
+                console.error('Clear progress failed:', error);
+                cloudStatus.innerText += ' 进度清理失败。';
+            }
+        }
         try {
             await remoteStorage.finishExperiment({
                 successful: storageSucceeded && completedNormally,
@@ -1173,9 +1174,13 @@ async function finishExperiment() {
             });
         } catch (error) {
             console.error('Study finish failed:', error);
+            cloudStatus.innerText += ' 结束状态登记失败。';
         }
+    } else {
+        cloudStatus.innerText = p.debugMode ? '云端保存：调试数据不会上传。' : '云端保存：不可用。';
     }
 
+    experimentPhase = 'finished';
     try { if (document.exitFullscreen) document.exitFullscreen(); } catch (e) {}
 }
 
@@ -1530,18 +1535,24 @@ function saveWorkbookFile(wb, fileName) {
     const url = URL.createObjectURL(blob);
     lastExport = { url: url, fileName: fileName, size: u8.length };
 
+    showManualDownload(fileName, url);
+    // 保留原自动下载；若浏览器未执行，结果页上的手动链接仍可点。
     const a = document.createElement('a');
     a.href = url;
     a.download = fileName;
     a.rel = 'noopener';
     a.style.display = 'none';
     document.body.appendChild(a);
-    a.click();
-    a.remove();
+    try {
+        a.click();
+    } catch (error) {
+        console.warn('自动下载未触发，可使用手动链接。', error);
+    } finally {
+        a.remove();
+    }
 
-    console.log('[' + EXPERIMENT_NAME + '] 已导出 ' + fileName + '（' + u8.length + ' 字节，' +
+    console.log('[' + EXPERIMENT_NAME + '] 已生成 ' + fileName + '（' + u8.length + ' 字节，' +
         wb.SheetNames.length + ' 个 sheet）');
-    showManualDownload(fileName, url);
 }
 
 // 结束界面上的手动下载入口（文件名与自动下载一致）
